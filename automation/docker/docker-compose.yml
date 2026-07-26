@@ -32,7 +32,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-    networks: [internal]           # not published to host / internet (CFG-003)
+    # The evidence harness (src/audit-db.ts, admin-db.ts) runs on the HOST and queries
+    # the audit trail directly, so the DB port is published to localhost for the
+    # qualification environment. In a real deployment this is bound to localhost only /
+    # removed and the harness run inside the network (CFG-003).
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks: [internal]
 
   openclinica:
     # Real, pullable community image (JensPiegsa's Dockerfile, published as piegsaj on Hub).
