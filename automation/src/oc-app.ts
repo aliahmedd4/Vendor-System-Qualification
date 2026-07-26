@@ -10,11 +10,15 @@
  */
 import type { Page } from '@playwright/test';
 
+// OpenClinica CE is served under a context path (default /OpenClinica). All routes are
+// built from it so a different deployment path only needs OC_CONTEXT_PATH changed.
+const CTX = (process.env.OC_CONTEXT_PATH ?? '/OpenClinica').replace(/\/$/, '');
+
 export const routes = {
-  login: '/',
-  logout: '/pages/logout',
-  listStudySubjects: '/pages/listStudySubjects',
-  users: '/pages/listUserAccounts',
+  login: `${CTX}/`,
+  logout: `${CTX}/pages/logout`,
+  listStudySubjects: `${CTX}/pages/listStudySubjects`,
+  users: `${CTX}/pages/listUserAccounts`,
 };
 
 export const sel = {

@@ -17,11 +17,12 @@
 
 services:
   db:
+    # OpenClinica CE 3.13 is tested against PostgreSQL 9.5 (its EOL stack, VQ-002 R-15).
     # TODO(IQ-05): pin -> postgres@sha256:<record-digest-here>
-    image: postgres:9.6
+    image: postgres:9.5
     environment:
       POSTGRES_DB: openclinica
-      POSTGRES_USER: openclinica       # application role (least privilege)
+      POSTGRES_USER: openclinica       # DB superuser role the app connects as
       POSTGRES_PASSWORD: ${DB_APP_PASSWORD:?set in .env, never default}
     volumes:
       - oc_pgdata:/var/lib/postgresql/data
@@ -34,8 +35,10 @@ services:
     networks: [internal]           # not published to host / internet (CFG-003)
 
   openclinica:
-    # TODO(IQ-04): pin -> <oc-image>@sha256:<record-digest-here>
-    image: jenspiegsa/openclinica:3.14
+    # Real, pullable community image (JensPiegsa's Dockerfile, published as piegsaj on Hub).
+    # App is served at the /OpenClinica context path; default admin is root / 12345678.
+    # TODO(IQ-04): pin -> piegsaj/openclinica@sha256:<record-digest-here>
+    image: piegsaj/openclinica:oc-3.13
     depends_on:
       db:
         condition: service_healthy   # wait for Postgres to accept connections
@@ -47,8 +50,15 @@ services:
       DB_USER: openclinica
       DB_PASS: ${DB_APP_PASSWORD:?set in .env}
       TZ: UTC                       # CFG-004 trustworthy timestamps
+      LOG_LEVEL: INFO
+    volumes:
+      - oc_data:/usr/local/tomcat/openclinica.data   # persistent app data (IQ-18)
+    # DEBUG/IQ-bring-up ONLY: direct HTTP on 8080 to confirm the app is up at
+    # http://localhost:8080/OpenClinica before wiring TLS. Comment this out for the
+    # controlled configuration (CFG-003 = no direct exposure); the proxy is the real path.
+    ports:
+      - "8080:8080"
     networks: [internal]
-    # No direct host port: only the reverse proxy reaches it.
 
   proxy:
     # TLS termination (CFG-002). TODO(IQ-06): pin digest.
@@ -62,7 +72,8 @@ services:
     networks: [internal]
 
 volumes:
-  oc_pgdata:                        # persistent (IQ-18)
+  oc_pgdata:                        # persistent DB (IQ-18)
+  oc_data:                          # persistent app data (IQ-18)
 
 networks:
   internal:
