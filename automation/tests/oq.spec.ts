@@ -210,18 +210,33 @@ test('OQ-28 account locks after 5 consecutive failed attempts', async ({ page })
     const pre = await resetUserLock(lockUser);
     ev.attach('db-privilege', 'Pre-test lock reset of the dedicated account', pre);
 
+    // BASELINE (assertion-quality guard): with the account reset, the CORRECT password must
+    // succeed. This proves the account exists and the credentials are valid, so the later
+    // denial can ONLY be the lockout — a non-existent or broken account cannot masquerade as
+    // a working lockout (which would be a false pass). A successful login also resets the
+    // failed-attempt counter to a known zero before we start the failure sequence.
+    await login(page, lockUser, lockPass);
+    const baselineLoggedIn = await isLoggedIn(page);
+    ev.attach('ui-state', 'Baseline: account logs in with the correct password when unlocked', { baselineLoggedIn });
+    expect(baselineLoggedIn,
+      'baseline: the lockout account must log in with the correct password BEFORE the failure sequence').toBeTruthy();
+    await logout(page);
+
+    // Drive 5 consecutive FAILED logins to trip the lockout threshold.
     for (let i = 0; i < 5; i++) {
       await login(page, lockUser, `wrong-${i}`);
       await logout(page);
     }
-    // 6th attempt, now with the CORRECT password, should still be refused if locked.
+    // The CORRECT password must now be refused — and because it demonstrably worked moments
+    // ago, refusal proves the lockout rather than a bad/absent credential.
     await login(page, lockUser, lockPass);
     const stillDenied = !(await isLoggedIn(page));
     const logins = await getRecentLogins(lockUser, 10);
-    ev.attach('login-audit', 'Login-attempt history showing failures + lockout', logins);
+    ev.attach('login-audit', 'Login history: baseline success, 5 failures, then lockout', logins);
     ev.attach('ui-state', 'Logged in after lockout with the correct password?', { stillDenied });
-    expect(stillDenied, 'account should be locked even with the correct password').toBeTruthy();
-    ev.pass('Account locked after 5 failures; correct password refused while locked');
+    expect(stillDenied,
+      'account must be locked (correct password refused) after 5 consecutive failures').toBeTruthy();
+    ev.pass('Baseline login succeeded; account locked after 5 failures; correct password then refused');
   } catch (e) { ev.fail(String(e)); throw e; } finally {
     ev.save(); await logout(page);
     // Expected end state: the dedicated account is locked. Isolation from other tests is

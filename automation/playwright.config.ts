@@ -15,6 +15,8 @@ import 'dotenv/config';
  */
 export default defineConfig({
   testDir: './tests',
+  // Fail the run immediately if either DB connection is down (see global-setup.ts).
+  globalSetup: './global-setup.ts',
   timeout: 60_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,        // qualification runs are sequential + deterministic

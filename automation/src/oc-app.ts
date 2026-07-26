@@ -21,36 +21,56 @@ export const routes = {
   users: `${CTX}/pages/listUserAccounts`,
 };
 
+// The OpenClinica login page hosts TWO forms that each contain an <input name="Submit">:
+// the Spring Security LOGIN form and a "Request Password" (forgot-password) form. A
+// selector on name="Submit" / button[type=submit] alone matched the hidden
+// "Submit Password Request" control and hung for 15 s (DEV-010).
+//
+// Fix: scope every login selector to the login form, identified WITHOUT assuming an
+// action URL or button label — it is the only form on the page that contains a password
+// field. `form:has(input[name="j_password"])` therefore uniquely selects it, and the
+// submit control *inside that form* is unambiguous.
+const LOGIN_FORM = 'form:has(input[name="j_password"])';
+
 export const sel = {
-  usernameInput: '#j_username, input[name="j_username"]',
-  passwordInput: '#j_password, input[name="j_password"]',
-  loginButton: 'input[name="Submit"], button[type="submit"]',
-  loginError: '.alert-error, .error, #errorPanel',
-  userMenu: '#userName, .navbar .user',
+  loginForm: LOGIN_FORM,
+  usernameInput: `${LOGIN_FORM} input[name="j_username"]`,
+  passwordInput: `${LOGIN_FORM} input[name="j_password"]`,
+  // Submit control scoped to the login form only (excludes the forgot-password submit).
+  loginButton: `${LOGIN_FORM} input[type="submit"], ${LOGIN_FORM} button[type="submit"]`,
+  // Error banner rendered on the login page after a failed authentication.
+  loginError: '.alert-error, span.error, .errorMessage',
+  // Authenticated-only marker: the Log Out link is only present in a logged-in session.
+  // Used as the positive proof of authentication (not the mere absence of an error).
+  loggedInMarker: 'a[href*="logout" i]',
 };
 
 export async function login(page: Page, user: string, pass: string): Promise<void> {
   await page.goto(routes.login);
+  // The element must be VISIBLE, not merely present — the previous defect was a resolved-
+  // but-invisible control. Fail fast (default 15 s) if the login form itself is missing.
+  await page.locator(sel.loginForm).waitFor({ state: 'visible' });
   await page.fill(sel.usernameInput, user);
   await page.fill(sel.passwordInput, pass);
-  // Submitting the login form triggers a navigation. We MUST wait for it to settle
-  // before any caller inspects session state, otherwise isLoggedIn()/goto() race the
-  // auth response and produce flaky verdicts (a goto issued mid-login can be redirected
-  // back to the login page and misread as an access denial).
+  const submit = page.locator(sel.loginButton);
+  await submit.waitFor({ state: 'visible' });
+  // Submitting triggers a navigation. Wait for it to settle before any caller inspects
+  // session state, otherwise isLoggedIn()/goto() race the auth response.
   await Promise.all([
-    page.waitForNavigation({ waitUntil: 'domcontentloaded' }).catch(() => { /* SPA/no nav */ }),
-    page.click(sel.loginButton),
+    page.waitForNavigation({ waitUntil: 'domcontentloaded' }).catch(() => { /* no nav */ }),
+    submit.click(),
   ]);
-  // Settle on either the authenticated UI or a rendered login error before returning.
+  // Settle on either the authenticated marker or a rendered login error before returning.
   await page
-    .locator(`${sel.userMenu}, ${sel.loginError}`)
+    .locator(`${sel.loggedInMarker}, ${sel.loginError}`)
     .first()
     .waitFor({ state: 'visible', timeout: 10_000 })
-    .catch(() => { /* leave verdict to the caller's explicit assertions */ });
+    .catch(() => { /* verdict is left to the caller's explicit assertions */ });
 }
 
 export async function isLoggedIn(page: Page): Promise<boolean> {
-  return (await page.locator(sel.userMenu).count()) > 0;
+  // Positive, authenticated-only signal that must be VISIBLE (a hidden node is not proof).
+  return page.locator(sel.loggedInMarker).first().isVisible().catch(() => false);
 }
 
 export async function logout(page: Page): Promise<void> {

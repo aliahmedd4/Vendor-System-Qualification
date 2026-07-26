@@ -17,20 +17,23 @@
  * schema differs. Treat any mismatch as an IQ deviation (VQ-012), not a silent edit.
  */
 import pg from 'pg';
+import { dbHost, dbPort, dbName, poolMax } from './db-common.js';
 
 const { Pool } = pg;
 
 let pool: pg.Pool | null = null;
 
+// READ-ONLY pool (oc_readonly): evidence extraction only. Never write-capable — kept
+// separate from the privileged pool in admin-db.ts on purpose (see db-common.ts).
 function getPool(): pg.Pool {
   if (!pool) {
     pool = new Pool({
-      host: process.env.PGHOST,
-      port: Number(process.env.PGPORT ?? 5432),
-      database: process.env.PGDATABASE,
+      host: dbHost(),          // IPv4-pinned (DEV-011)
+      port: dbPort(),
+      database: dbName(),
       user: process.env.PGUSER,
       password: process.env.PGPASSWORD,
-      max: 3,
+      max: poolMax(),
       idleTimeoutMillis: 5_000,
     });
   }
@@ -113,16 +116,17 @@ export async function findChangeWithReason(opts: {
 
 export interface LoginAuditRow {
   user_name: string;
-  login_status: string | null;
+  login_status_code: number | null;   // OpenClinica 3.13 column (integer status code)
   login_date: string;
 }
 
-/** Recent login attempts (OQ-01/OQ-02/OQ-28 evidence). */
+/** Recent login attempts (OQ-01/OQ-02/OQ-28 evidence). Column names verified against the
+ *  live audit_user_login schema (DEV-012): the status column is `login_status_code`. */
 export async function getRecentLogins(userName: string, limit = 10): Promise<LoginAuditRow[]> {
   const sql = `
     SELECT user_name,
-           login_status,
-           to_char(login_attempt_date, 'YYYY-MM-DD"T"HH24:MI:SS') AS login_date
+           login_status_code,
+           to_char(login_attempt_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS login_date
     FROM audit_user_login
     WHERE user_name = $1
     ORDER BY login_attempt_date DESC

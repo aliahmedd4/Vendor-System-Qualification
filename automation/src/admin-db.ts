@@ -15,17 +15,22 @@
  * Configure PGADMIN_USER/PGADMIN_PASSWORD (falls back to PGUSER/PGPASSWORD).
  */
 import pg from 'pg';
+import { dbHost, dbPort, dbName } from './db-common.js';
 
 const { Pool } = pg;
 
 let adminPool: pg.Pool | null = null;
 
+// WRITE-CAPABLE pool (openclinica). Deliberately separate from the read-only pool: OQ-15
+// must attempt a write that would be ALLOWED by privilege and be refused only by the
+// immutability trigger. Consolidating with oc_readonly would make OQ-15 pass for the wrong
+// reason (missing grant), which is fabricated evidence. See db-common.ts.
 function getAdminPool(): pg.Pool {
   if (!adminPool) {
     adminPool = new Pool({
-      host: process.env.PGHOST,
-      port: Number(process.env.PGPORT ?? 5432),
-      database: process.env.PGDATABASE,
+      host: dbHost(),          // IPv4-pinned (DEV-011)
+      port: dbPort(),
+      database: dbName(),
       user: process.env.PGADMIN_USER ?? process.env.PGUSER,
       password: process.env.PGADMIN_PASSWORD ?? process.env.PGPASSWORD,
       max: 2,
