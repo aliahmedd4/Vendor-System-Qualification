@@ -69,15 +69,20 @@ STEP 3 deliberately favours **native digital records over screenshots**, per FDA
 
 ## 4. How to reproduce
 
+> **Two `.env` files, by design.** `docker/.env` (copied from `docker/.env.example`) holds
+> `DB_APP_PASSWORD` for `docker compose`; `automation/.env` (from `automation/.env.example`)
+> configures the harness. Couplings: `DB_APP_PASSWORD` **=** `PGADMIN_PASSWORD`, and
+> `PGPASSWORD` **=** the `oc_readonly` password in `docker/init-readonly.sql`.
+
 ### 4.1 Stand up the system (IQ)
 ```bash
 cd qualification/automation/docker
-# 1) Pin images by digest and record them in VQ-006 IQ-04/05 (do NOT keep :tags):
+# 1) Compose env (DB_APP_PASSWORD) + TLS cert for the proxy:
+cp .env.example .env              # set DB_APP_PASSWORD (Windows: copy .env.example .env)
+bash generate-certs.sh            # or: pwsh ./generate-certs.ps1  (writes ./certs)
+# 2) Pin images by digest and record them in VQ-006 IQ-04/05 (do NOT keep :tags):
 docker compose pull
 docker images --digests           # copy the sha256 digests into VQ-006
-# 2) Provide secrets (never defaults) and a TLS cert for the proxy:
-cp ../.env.example ../.env        # then edit DB + user + PGADMIN passwords
-bash generate-certs.sh            # or: pwsh ./generate-certs.ps1  (writes ./certs)
 # 3) Start; the app waits for the DB healthcheck before booting:
 docker compose up -d
 # 4) After OpenClinica has created its schema on first boot, apply table grants +
