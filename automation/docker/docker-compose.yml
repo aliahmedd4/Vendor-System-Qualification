@@ -1,0 +1,69 @@
+# Reference deployment for the OpenClinica CE qualification environment.
+#
+# This file is an IQ artefact (VQ-006). Before execution:
+#  1. Replace the :tag references with DIGEST-PINNED references (image@sha256:...) and
+#     record those digests in IQ-04/IQ-05. A mutable tag is NOT acceptable evidence.
+#  2. TLS is terminated at the reverse proxy (CFG-002 / IQ-14); OpenClinica CE itself
+#     does not provide TLS (see VQ-012 DEV-001).
+#  3. init-readonly.sql (mounted below) creates the read-only evidence role at initdb.
+#     AFTER first boot, apply post-schema-setup.sql to grant SELECT on the created tables
+#     and install the audit-immutability triggers (OQ-15 / IQ-13):
+#        docker compose exec -T db psql -U openclinica -d openclinica -f - < post-schema-setup.sql
+#  4. Before starting the proxy, generate the self-signed cert into ./certs
+#     (see generate-certs.sh). Missing cert/config files would otherwise crash nginx.
+#
+# Community images (e.g. JensPiegsa/OpenClinica, APSL/docker-openclinica) are explicitly
+# "for trying out" per their authors; provenance is a documented risk (VQ-012 DEV-004).
+
+services:
+  db:
+    # TODO(IQ-05): pin -> postgres@sha256:<record-digest-here>
+    image: postgres:9.6
+    environment:
+      POSTGRES_DB: openclinica
+      POSTGRES_USER: openclinica       # application role (least privilege)
+      POSTGRES_PASSWORD: ${DB_APP_PASSWORD:?set in .env, never default}
+    volumes:
+      - oc_pgdata:/var/lib/postgresql/data
+      - ./init-readonly.sql:/docker-entrypoint-initdb.d/10-readonly.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openclinica -d openclinica"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [internal]           # not published to host / internet (CFG-003)
+
+  openclinica:
+    # TODO(IQ-04): pin -> <oc-image>@sha256:<record-digest-here>
+    image: jenspiegsa/openclinica:3.14
+    depends_on:
+      db:
+        condition: service_healthy   # wait for Postgres to accept connections
+    environment:
+      DB_TYPE: postgres
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: openclinica
+      DB_USER: openclinica
+      DB_PASS: ${DB_APP_PASSWORD:?set in .env}
+      TZ: UTC                       # CFG-004 trustworthy timestamps
+    networks: [internal]
+    # No direct host port: only the reverse proxy reaches it.
+
+  proxy:
+    # TLS termination (CFG-002). TODO(IQ-06): pin digest.
+    image: nginx:1.27
+    depends_on: [openclinica]
+    ports:
+      - "443:443"                   # HTTPS only; no plain HTTP exposed externally
+    volumes:
+      - ./nginx-tls.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    networks: [internal]
+
+volumes:
+  oc_pgdata:                        # persistent (IQ-18)
+
+networks:
+  internal:
+    driver: bridge

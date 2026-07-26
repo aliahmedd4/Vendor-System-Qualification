@@ -1,0 +1,22 @@
+{
+  "name": "openclinica-oq-evidence",
+  "version": "1.0.0",
+  "description": "Playwright OQ evidence harness for OpenClinica CE vendor qualification (VQ-007). Pulls evidence from the system's native audit trail and logs per FDA CSA.",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:oq": "playwright test tests/oq.spec.ts",
+    "report": "playwright show-report evidence/html-report",
+    "evidence:index": "node scripts/build-evidence-index.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0",
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "typescript": "^5.5.0"
+  },
+  "dependencies": {
+    "pg": "^8.12.0",
+    "dotenv": "^16.4.5"
+  }
+}
